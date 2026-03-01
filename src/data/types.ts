@@ -2,6 +2,7 @@ export interface PlantType {
   id: string
   name: string
   latinName: string
+  variety: string           // specific cultivar name, e.g. 'Brandywine'
   category: 'vegetable' | 'herb' | 'fruit' | 'flower' | 'legume' | 'root' | 'leafy-green'
   emoji: string
   color: string
@@ -18,6 +19,17 @@ export interface PlantType {
   incompatiblePlants: string[]
   hardinessZones: string
   notes: string
+  // Recommended defaults — auto-populated into PlantInstance on paint
+  recommendedFertilizer: string
+  recommendedFertilizerSchedule: string
+  recommendedWateringMethod: 'drip' | 'sprinkler' | 'hand-watering' | 'soaker-hose' | 'none' | ''
+  recommendedWateringFrequency: string
+  recommendedMulch: string
+  recommendedSupport: 'none' | 'stake' | 'cage' | 'trellis' | 'fence' | 'raised-bed-edge' | ''
+  recommendedYieldUnit: 'lbs' | 'oz' | 'count' | 'bunches' | 'cups' | 'quarts' | 'gallons' | ''
+  seedSource: string        // common suppliers for this variety in Michigan
+  startMethod: 'direct-sow' | 'indoor-start' | 'transplant' | 'crown' | 'slip' | 'bulb'
+  michiganPlantingWindow: string  // e.g. "Mid-May to early June"
 }
 
 export interface PlantInstance {

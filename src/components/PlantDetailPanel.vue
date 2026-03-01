@@ -214,8 +214,8 @@
 
     <div class="detail-body">
       <section class="detail-section">
-        <h4>Apply to All Selected</h4>
-        <p class="bulk-hint">Changes will overwrite the selected field on all {{ store.selectedCellKeys.size }} cells.</p>
+        <h4>Status & Health</h4>
+        <p class="bulk-hint">Only non-blank fields will be applied to all {{ store.selectedCellKeys.size }} cells.</p>
 
         <div class="field-row">
           <label>Status</label>
@@ -234,6 +234,17 @@
         </div>
 
         <div class="field-row">
+          <label>Rating</label>
+          <select v-model="bulkRating">
+            <option value="">— keep existing —</option>
+            <option v-for="n in 5" :key="n" :value="n">{{ '★'.repeat(n) + '☆'.repeat(5 - n) }}</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h4>💧 Watering & Care</h4>
+        <div class="field-row">
           <label>Watering Method</label>
           <select v-model="bulkWatering">
             <option value="">— keep existing —</option>
@@ -246,19 +257,88 @@
         </div>
 
         <div class="field-row">
+          <label>Watering Frequency</label>
+          <input type="text" v-model="bulkWateringFrequency" placeholder="— keep existing —" />
+        </div>
+
+        <div class="field-row">
           <label>Support Type</label>
           <select v-model="bulkSupport">
             <option value="">— keep existing —</option>
+            <option value="none">None</option>
             <option value="stake">Stake</option>
             <option value="cage">Cage</option>
             <option value="trellis">Trellis</option>
             <option value="fence">Fence</option>
+            <option value="raised-bed-edge">Raised Bed Edge</option>
           </select>
         </div>
 
         <div class="field-row">
+          <label>Mulch Type</label>
+          <input type="text" v-model="bulkMulch" placeholder="— keep existing —" />
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h4>🌱 Fertilizer</h4>
+        <div class="field-row">
           <label>Fertilizer Used</label>
           <input type="text" v-model="bulkFertilizer" placeholder="— keep existing —" />
+        </div>
+        <div class="field-row">
+          <label>Fertilizer Schedule</label>
+          <input type="text" v-model="bulkFertilizerSchedule" placeholder="— keep existing —" />
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h4>🐛 Issues & Treatments</h4>
+        <div class="field-row">
+          <label>Pest Issues</label>
+          <input type="text" v-model="bulkPestIssues" placeholder="— keep existing —" />
+        </div>
+        <div class="field-row">
+          <label>Disease Issues</label>
+          <input type="text" v-model="bulkDiseaseIssues" placeholder="— keep existing —" />
+        </div>
+        <div class="field-row">
+          <label>Treatments Applied</label>
+          <input type="text" v-model="bulkTreatments" placeholder="— keep existing —" />
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h4>🏷️ Identity</h4>
+        <div class="field-row">
+          <label>Variety</label>
+          <input type="text" v-model="bulkVariety" placeholder="— keep existing —" />
+        </div>
+        <div class="field-row">
+          <label>Seed Source</label>
+          <input type="text" v-model="bulkSeedSource" placeholder="— keep existing —" />
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h4>📅 Bulk Set Date</h4>
+        <div class="field-row">
+          <label>Date Field</label>
+          <select v-model="bulkDateField">
+            <option value="">Select...</option>
+            <option value="datePlanned">Date Planned</option>
+            <option value="dateSeededIndoors">Seeded Indoors</option>
+            <option value="dateTransplanted">Transplanted</option>
+            <option value="dateDirectSown">Direct Sown</option>
+            <option value="dateFirstSprout">First Sprout</option>
+            <option value="dateFirstHarvest">First Harvest</option>
+            <option value="dateLastHarvest">Last Harvest</option>
+            <option value="dateRemoved">Removed</option>
+          </select>
+        </div>
+        <div class="field-row" v-if="bulkDateField">
+          <label>Date Value</label>
+          <input type="date" v-model="bulkDateValue" />
         </div>
       </section>
 
@@ -297,18 +377,39 @@ const store = useGardenStore()
 // --- Bulk edit state ---
 const bulkStatus = ref('')
 const bulkHealth = ref('')
+const bulkRating = ref('')
 const bulkWatering = ref('')
+const bulkWateringFrequency = ref('')
 const bulkSupport = ref('')
+const bulkMulch = ref('')
 const bulkFertilizer = ref('')
+const bulkFertilizerSchedule = ref('')
+const bulkPestIssues = ref('')
+const bulkDiseaseIssues = ref('')
+const bulkTreatments = ref('')
+const bulkVariety = ref('')
+const bulkSeedSource = ref('')
+const bulkDateField = ref('')
+const bulkDateValue = ref('')
 const bulkNotesAppend = ref('')
 
 function applyBulk() {
   const updates: Record<string, any> = {}
   if (bulkStatus.value) updates.status = bulkStatus.value
   if (bulkHealth.value) updates.health = bulkHealth.value
+  if (bulkRating.value) updates.rating = parseInt(bulkRating.value)
   if (bulkWatering.value) updates.wateringMethod = bulkWatering.value
+  if (bulkWateringFrequency.value) updates.wateringFrequency = bulkWateringFrequency.value
   if (bulkSupport.value) updates.supportType = bulkSupport.value
+  if (bulkMulch.value) updates.mulchType = bulkMulch.value
   if (bulkFertilizer.value) updates.fertilizerUsed = bulkFertilizer.value
+  if (bulkFertilizerSchedule.value) updates.fertilizerSchedule = bulkFertilizerSchedule.value
+  if (bulkPestIssues.value) updates.pestIssues = bulkPestIssues.value
+  if (bulkDiseaseIssues.value) updates.diseaseIssues = bulkDiseaseIssues.value
+  if (bulkTreatments.value) updates.treatmentsApplied = bulkTreatments.value
+  if (bulkVariety.value) updates.variety = bulkVariety.value
+  if (bulkSeedSource.value) updates.seedSource = bulkSeedSource.value
+  if (bulkDateField.value && bulkDateValue.value) updates[bulkDateField.value] = bulkDateValue.value
 
   if (Object.keys(updates).length) {
     store.bulkUpdateSelected(updates)
@@ -328,9 +429,20 @@ function applyBulk() {
   // Reset fields after applying
   bulkStatus.value = ''
   bulkHealth.value = ''
+  bulkRating.value = ''
   bulkWatering.value = ''
+  bulkWateringFrequency.value = ''
   bulkSupport.value = ''
+  bulkMulch.value = ''
   bulkFertilizer.value = ''
+  bulkFertilizerSchedule.value = ''
+  bulkPestIssues.value = ''
+  bulkDiseaseIssues.value = ''
+  bulkTreatments.value = ''
+  bulkVariety.value = ''
+  bulkSeedSource.value = ''
+  bulkDateField.value = ''
+  bulkDateValue.value = ''
   bulkNotesAppend.value = ''
 }
 

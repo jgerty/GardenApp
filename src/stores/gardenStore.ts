@@ -235,13 +235,15 @@ export const useGardenStore = defineStore('garden', () => {
     const key = `${row}-${col}`
     if ((activeBed.value.disabledCells ?? []).includes(key)) return
     const today = new Date().toISOString().slice(0, 10)
+    // Look up plant type to auto-fill recommended defaults
+    const pt = plantTypes.value.find(p => p.id === selectedPlantTypeId.value)
     const instance: PlantInstance = {
       id: uuidv4(),
       plantTypeId: selectedPlantTypeId.value,
       gridRow: row,
       gridCol: col,
-      variety: '',
-      seedSource: '',
+      variety: pt?.variety ?? '',
+      seedSource: pt?.seedSource ?? '',
       status: 'planned',
       health: 'good',
       datePlanned: today,
@@ -256,16 +258,16 @@ export const useGardenStore = defineStore('garden', () => {
       dateLastHarvest: null,
       dateRemoved: null,
       yieldTotal: null,
-      yieldUnit: '',
-      fertilizerUsed: '',
-      fertilizerSchedule: '',
-      wateringMethod: '',
-      wateringFrequency: '',
-      mulchType: '',
+      yieldUnit: pt?.recommendedYieldUnit ?? '',
+      fertilizerUsed: pt?.recommendedFertilizer ?? '',
+      fertilizerSchedule: pt?.recommendedFertilizerSchedule ?? '',
+      wateringMethod: pt?.recommendedWateringMethod ?? '',
+      wateringFrequency: pt?.recommendedWateringFrequency ?? '',
+      mulchType: pt?.recommendedMulch ?? '',
       pestIssues: '',
       diseaseIssues: '',
       treatmentsApplied: '',
-      supportType: '',
+      supportType: pt?.recommendedSupport ?? '',
       notes: '',
       photos: [],
       rating: null,
@@ -394,6 +396,160 @@ export const useGardenStore = defineStore('garden', () => {
     }
   }
 
+  // --- Auto-Placement Optimizer ---
+  interface PlantRequest { plantTypeId: string; quantity: number }
+
+  function optimizePlacement(requests: PlantRequest[]): { success: boolean; message: string } {
+    const bed = activeBed.value
+    if (!bed) return { success: false, message: 'No active bed selected.' }
+
+    // Collect available cells (not disabled, currently empty)
+    const availableCells: { row: number; col: number; key: string }[] = []
+    for (let r = 0; r < bed.rows; r++) {
+      for (let c = 0; c < bed.cols; c++) {
+        const key = `${r}-${c}`
+        if ((bed.disabledCells ?? []).includes(key)) continue
+        if (bed.cells[key]) continue
+        availableCells.push({ row: r, col: c, key })
+      }
+    }
+
+    // Build flat list of plant types to place
+    const plantsToPlace: PlantType[] = []
+    for (const req of requests) {
+      const pt = plantTypes.value.find(p => p.id === req.plantTypeId)
+      if (!pt) continue
+      for (let i = 0; i < req.quantity; i++) {
+        plantsToPlace.push(pt)
+      }
+    }
+
+    if (plantsToPlace.length === 0) return { success: false, message: 'No plants selected.' }
+    if (plantsToPlace.length > availableCells.length) {
+      return { success: false, message: `Need ${plantsToPlace.length} cells but only ${availableCells.length} are available.` }
+    }
+
+    const cellSize = bed.cellSizeInches || 12
+
+    // Sort plants by spacing (largest first) so big plants get placed first
+    plantsToPlace.sort((a, b) => b.spacingInches - a.spacingInches)
+
+    // Build a name match helper for companion/incompatible lists
+    function plantMatchesName(pt: PlantType, name: string): boolean {
+      const n = name.toLowerCase()
+      return pt.name.toLowerCase().includes(n) ||
+             pt.category.toLowerCase() === n ||
+             pt.variety.toLowerCase().includes(n)
+    }
+
+    // Track placements: key -> PlantType
+    const placements = new Map<string, PlantType>()
+
+    // Score a candidate cell for a given plant type
+    function scoreCell(pt: PlantType, row: number, col: number): number {
+      let score = 0
+      const neighbors: [number, number][] = [
+        [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1],
+        [row - 1, col - 1], [row - 1, col + 1], [row + 1, col - 1], [row + 1, col + 1],
+      ]
+      for (const [nr, nc] of neighbors) {
+        const nkey = `${nr}-${nc}`
+        const neighbor = placements.get(nkey) || (bed.cells[nkey] ? plantTypes.value.find(p => p.id === bed.cells[nkey].plantTypeId) : null)
+        if (!neighbor) continue
+
+        // Check companions
+        for (const comp of pt.companionPlants) {
+          if (plantMatchesName(neighbor, comp)) { score += 3; break }
+        }
+        // Check incompatible
+        for (const inc of pt.incompatiblePlants) {
+          if (plantMatchesName(neighbor, inc)) { score -= 10; break }
+        }
+        // Same plant too close? Check spacing
+        if (neighbor.id === pt.id) {
+          const neededCells = Math.ceil(pt.spacingInches / cellSize)
+          const dist = Math.abs(row - (placements.has(nkey) ? parseInt(nkey.split('-')[0]) : 0)) +
+                       Math.abs(col - (placements.has(nkey) ? parseInt(nkey.split('-')[1]) : 0))
+          if (dist < neededCells) score -= 5
+        }
+      }
+      // Also check spacing against all placed instances of same type
+      for (const [placedKey, placedPt] of placements) {
+        if (placedPt.id === pt.id) {
+          const [pr, pc] = placedKey.split('-').map(Number)
+          const dist = Math.max(Math.abs(row - pr), Math.abs(col - pc))
+          const neededCells = Math.max(1, Math.ceil(pt.spacingInches / cellSize))
+          if (dist < neededCells) score -= 5
+        }
+      }
+      return score
+    }
+
+    // Greedy placement
+    const used = new Set<string>()
+    for (const pt of plantsToPlace) {
+      let bestCell: { row: number; col: number; key: string } | null = null
+      let bestScore = -Infinity
+      for (const cell of availableCells) {
+        if (used.has(cell.key)) continue
+        const s = scoreCell(pt, cell.row, cell.col)
+        if (s > bestScore) {
+          bestScore = s
+          bestCell = cell
+        }
+      }
+      if (!bestCell) {
+        return { success: false, message: 'Could not place all plants—not enough suitable cells.' }
+      }
+      placements.set(bestCell.key, pt)
+      used.add(bestCell.key)
+    }
+
+    // Apply placements to the bed
+    const today = new Date().toISOString().slice(0, 10)
+    for (const [key, pt] of placements) {
+      const [r, c] = key.split('-').map(Number)
+      const instance: PlantInstance = {
+        id: uuidv4(),
+        plantTypeId: pt.id,
+        gridRow: r,
+        gridCol: c,
+        variety: pt.variety,
+        seedSource: pt.seedSource,
+        status: 'planned',
+        health: 'good',
+        datePlanned: today,
+        dateSeededIndoors: null,
+        dateTransplanted: null,
+        dateDirectSown: null,
+        dateFirstSprout: null,
+        dateFirstTrueLeaves: null,
+        dateFirstFlower: null,
+        dateFirstFruit: null,
+        dateFirstHarvest: null,
+        dateLastHarvest: null,
+        dateRemoved: null,
+        yieldTotal: null,
+        yieldUnit: pt.recommendedYieldUnit ?? '',
+        fertilizerUsed: pt.recommendedFertilizer ?? '',
+        fertilizerSchedule: pt.recommendedFertilizerSchedule ?? '',
+        wateringMethod: pt.recommendedWateringMethod ?? '',
+        wateringFrequency: pt.recommendedWateringFrequency ?? '',
+        mulchType: pt.recommendedMulch ?? '',
+        pestIssues: '',
+        diseaseIssues: '',
+        treatmentsApplied: '',
+        supportType: pt.recommendedSupport ?? '',
+        notes: '',
+        photos: [],
+        rating: null,
+      }
+      bed.cells[key] = instance
+    }
+    persist()
+    return { success: true, message: `Successfully placed ${placements.size} plants.` }
+  }
+
   return {
     plantTypes,
     gardenGroups,
@@ -438,6 +594,7 @@ export const useGardenStore = defineStore('garden', () => {
     updateBed,
     exportData,
     importData,
+    optimizePlacement,
     persist,
   }
 })

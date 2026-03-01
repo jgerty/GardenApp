@@ -327,6 +327,53 @@
       </div>
     </div>
 
+    <!-- Auto-Placement Optimizer -->
+    <div class="section optimizer-section">
+      <div class="section-header" @click="showOptimizer = !showOptimizer" style="cursor:pointer">
+        <h4>🧠 Auto-Place Optimizer</h4>
+        <span class="toggle-arrow">{{ showOptimizer ? '▼' : '▶' }}</span>
+      </div>
+      <div v-if="showOptimizer" class="optimizer-body">
+        <p class="optimizer-hint">Select plants and quantities, then let the optimizer arrange them in the active bed based on spacing and companion planting.</p>
+        <div class="optimizer-search">
+          <input type="text" v-model="optimizerSearch" placeholder="Search plants..." />
+        </div>
+        <div class="optimizer-list">
+          <div
+            v-for="pt in filteredOptimizerPlants"
+            :key="pt.id"
+            class="optimizer-plant-row"
+          >
+            <span class="opt-emoji">{{ pt.emoji }}</span>
+            <span class="opt-name" :title="pt.name">{{ pt.name }}</span>
+            <div class="opt-qty">
+              <button @click="changeOptQty(pt.id, -1)" :disabled="!optimizerQtys[pt.id]">−</button>
+              <span class="opt-qty-num">{{ optimizerQtys[pt.id] || 0 }}</span>
+              <button @click="changeOptQty(pt.id, 1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="optimizer-summary" v-if="totalOptimizerPlants > 0">
+          {{ totalOptimizerPlants }} plants selected
+        </div>
+        <div class="optimizer-actions">
+          <button
+            class="optimizer-run-btn"
+            :disabled="totalOptimizerPlants === 0 || !store.activeBed"
+            @click="runOptimizer"
+          >
+            🚀 Optimize Placement
+          </button>
+          <button class="optimizer-clear-btn" @click="clearOptimizer" v-if="totalOptimizerPlants > 0">
+            Clear
+          </button>
+        </div>
+        <div class="optimizer-result" v-if="optimizerMessage" :class="{ error: !optimizerSuccess }">
+          {{ optimizerMessage }}
+        </div>
+      </div>
+    </div>
+
     <!-- Data Management -->
     <div class="section data-section">
       <div class="section-header">
@@ -533,6 +580,50 @@ function getPlantEmoji(typeId: string): string {
 
 function getPlantName(typeId: string): string {
   return store.plantTypes.find((p) => p.id === typeId)?.name ?? 'Unknown'
+}
+
+// --- Auto-Placement Optimizer ---
+const showOptimizer = ref(false)
+const optimizerSearch = ref('')
+const optimizerQtys = ref<Record<string, number>>({})
+const optimizerMessage = ref('')
+const optimizerSuccess = ref(false)
+
+const filteredOptimizerPlants = computed(() => {
+  const query = optimizerSearch.value.toLowerCase()
+  return store.plantTypes.filter(pt =>
+    !query || pt.name.toLowerCase().includes(query) || pt.category.toLowerCase().includes(query) || pt.variety.toLowerCase().includes(query)
+  )
+})
+
+const totalOptimizerPlants = computed(() => {
+  return Object.values(optimizerQtys.value).reduce((sum, q) => sum + (q || 0), 0)
+})
+
+function changeOptQty(plantId: string, delta: number) {
+  const current = optimizerQtys.value[plantId] || 0
+  const next = Math.max(0, current + delta)
+  optimizerQtys.value = { ...optimizerQtys.value, [plantId]: next }
+}
+
+function clearOptimizer() {
+  optimizerQtys.value = {}
+  optimizerMessage.value = ''
+}
+
+function runOptimizer() {
+  const requests = Object.entries(optimizerQtys.value)
+    .filter(([, qty]) => qty > 0)
+    .map(([plantTypeId, quantity]) => ({ plantTypeId, quantity }))
+
+  if (requests.length === 0) return
+
+  const result = store.optimizePlacement(requests)
+  optimizerMessage.value = result.message
+  optimizerSuccess.value = result.success
+  if (result.success) {
+    optimizerQtys.value = {}
+  }
 }
 
 // Export/Import
@@ -1073,5 +1164,146 @@ function importData(event: Event) {
 .data-btn:hover {
   background: #f1f5f9;
   border-color: #94a3b8;
+}
+
+/* Optimizer Section */
+.optimizer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.optimizer-hint {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+}
+.optimizer-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.optimizer-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px;
+}
+.optimizer-plant-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+.optimizer-plant-row:hover {
+  background: #f1f5f9;
+}
+.opt-emoji {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.opt-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+}
+.opt-qty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.opt-qty button {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.opt-qty button:hover:not(:disabled) {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+.opt-qty button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.opt-qty-num {
+  min-width: 20px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+.optimizer-summary {
+  font-size: 0.8rem;
+  color: #475569;
+  text-align: center;
+  font-weight: 500;
+}
+.optimizer-actions {
+  display: flex;
+  gap: 8px;
+}
+.optimizer-run-btn {
+  flex: 1;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #059669;
+  color: white;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.optimizer-run-btn:hover:not(:disabled) {
+  background: #047857;
+}
+.optimizer-run-btn:disabled {
+  background: #94a3b8;
+  cursor: default;
+}
+.optimizer-clear-btn {
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  color: #475569;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.optimizer-clear-btn:hover {
+  background: #f1f5f9;
+}
+.optimizer-result {
+  font-size: 0.8rem;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #dcfce7;
+  color: #166534;
+  text-align: center;
+}
+.optimizer-result.error {
+  background: #fef2f2;
+  color: #991b1b;
 }
 </style>
