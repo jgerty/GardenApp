@@ -199,6 +199,86 @@
     </div>
   </div>
 
+  <!-- Bulk-edit panel: shown when 2+ cells are selected -->
+  <div class="plant-detail-panel" v-else-if="store.selectedCellKeys.size > 1">
+    <div class="detail-header" style="border-color: #7c3aed">
+      <div class="detail-title-row">
+        <span class="detail-emoji">🔷</span>
+        <div>
+          <h3>{{ store.selectedCellKeys.size }} Cells Selected</h3>
+          <span class="detail-category">Bulk Edit Mode</span>
+        </div>
+      </div>
+      <button class="close-btn" @click="store.clearSelection()" title="Clear selection">×</button>
+    </div>
+
+    <div class="detail-body">
+      <section class="detail-section">
+        <h4>Apply to All Selected</h4>
+        <p class="bulk-hint">Changes will overwrite the selected field on all {{ store.selectedCellKeys.size }} cells.</p>
+
+        <div class="field-row">
+          <label>Status</label>
+          <select v-model="bulkStatus">
+            <option value="">— keep existing —</option>
+            <option v-for="s in PLANT_STATUSES" :key="s.value" :value="s.value">{{ s.icon }} {{ s.label }}</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <label>Health</label>
+          <select v-model="bulkHealth">
+            <option value="">— keep existing —</option>
+            <option v-for="h in HEALTH_OPTIONS" :key="h.value" :value="h.value">{{ h.label }}</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <label>Watering Method</label>
+          <select v-model="bulkWatering">
+            <option value="">— keep existing —</option>
+            <option value="drip">Drip</option>
+            <option value="sprinkler">Sprinkler</option>
+            <option value="hand-watering">Hand Watering</option>
+            <option value="soaker-hose">Soaker Hose</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <label>Support Type</label>
+          <select v-model="bulkSupport">
+            <option value="">— keep existing —</option>
+            <option value="stake">Stake</option>
+            <option value="cage">Cage</option>
+            <option value="trellis">Trellis</option>
+            <option value="fence">Fence</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <label>Fertilizer Used</label>
+          <input type="text" v-model="bulkFertilizer" placeholder="— keep existing —" />
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h4>📝 Append to Notes</h4>
+        <p class="bulk-hint">This text will be appended to each cell's existing notes.</p>
+        <textarea v-model="bulkNotesAppend" rows="3" placeholder="Enter text to append..."></textarea>
+      </section>
+
+      <section class="detail-section">
+        <button class="bulk-apply-btn" @click="applyBulk">
+          ✅ Apply to {{ store.selectedCellKeys.size }} cells
+        </button>
+        <button class="bulk-clear-btn" @click="store.clearSelection()">
+          Clear Selection
+        </button>
+      </section>
+    </div>
+  </div>
+
   <div class="plant-detail-panel empty" v-else-if="!store.selectedCell">
     <div class="empty-detail">
       <span>🔍</span>
@@ -208,11 +288,51 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useGardenStore } from '../stores/gardenStore'
 import { PLANT_STATUSES, HEALTH_OPTIONS } from '../data/types'
 
 const store = useGardenStore()
+
+// --- Bulk edit state ---
+const bulkStatus = ref('')
+const bulkHealth = ref('')
+const bulkWatering = ref('')
+const bulkSupport = ref('')
+const bulkFertilizer = ref('')
+const bulkNotesAppend = ref('')
+
+function applyBulk() {
+  const updates: Record<string, any> = {}
+  if (bulkStatus.value) updates.status = bulkStatus.value
+  if (bulkHealth.value) updates.health = bulkHealth.value
+  if (bulkWatering.value) updates.wateringMethod = bulkWatering.value
+  if (bulkSupport.value) updates.supportType = bulkSupport.value
+  if (bulkFertilizer.value) updates.fertilizerUsed = bulkFertilizer.value
+
+  if (Object.keys(updates).length) {
+    store.bulkUpdateSelected(updates)
+  }
+
+  if (bulkNotesAppend.value) {
+    for (const key of store.selectedCellKeys) {
+      const cell = store.activeBed?.cells[key]
+      if (cell) {
+        store.updatePlantInstance(key, {
+          notes: (cell.notes ? cell.notes + '\n' : '') + bulkNotesAppend.value,
+        })
+      }
+    }
+  }
+
+  // Reset fields after applying
+  bulkStatus.value = ''
+  bulkHealth.value = ''
+  bulkWatering.value = ''
+  bulkSupport.value = ''
+  bulkFertilizer.value = ''
+  bulkNotesAppend.value = ''
+}
 
 const plantType = computed(() => {
   if (!store.selectedCell) return null
@@ -256,6 +376,40 @@ function removeThisPlant() {
   overflow-y: auto;
   flex-shrink: 0;
 }
+
+.bulk-hint {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin: 0 0 10px;
+}
+
+.bulk-apply-btn {
+  width: 100%;
+  padding: 10px;
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-bottom: 8px;
+}
+
+.bulk-apply-btn:hover { background: #6d28d9; }
+
+.bulk-clear-btn {
+  width: 100%;
+  padding: 8px;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.bulk-clear-btn:hover { background: #e5e7eb; }
 
 .plant-detail-panel.empty {
   display: flex;

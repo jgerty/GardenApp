@@ -21,6 +21,74 @@
       </div>
     </div>
 
+    <!-- Garden Groups -->
+    <div class="section">
+      <div class="section-header">
+        <h4>Garden Groups</h4>
+        <button class="icon-btn" @click="showNewGroupForm = !showNewGroupForm" :title="showNewGroupForm ? 'Cancel' : 'New Group'">
+          {{ showNewGroupForm ? '×' : '+' }}
+        </button>
+      </div>
+
+      <!-- New Group Form -->
+      <div class="new-group-form" v-if="showNewGroupForm">
+        <input v-model="newGroupName" placeholder="Group name" />
+        <input v-model="newGroupDesc" placeholder="Description (optional)" />
+        <div class="form-row">
+          <div class="form-field">
+            <label>Color</label>
+            <input type="color" v-model="newGroupColor" />
+          </div>
+        </div>
+        <button class="create-btn" @click="createGroup">Create Group</button>
+      </div>
+
+      <!-- Group List -->
+      <div class="group-list">
+        <!-- "All" filter -->
+        <div
+          class="group-item"
+          :class="{ active: store.activeGroupId === null }"
+          @click="store.setActiveGroup(null)"
+        >
+          <div class="group-color-swatch" style="background:#94a3b8"></div>
+          <span class="group-name">All Beds</span>
+          <span class="group-count">{{ store.gardenBeds.length }}</span>
+        </div>
+
+        <div
+          v-for="group in store.gardenGroups"
+          :key="group.id"
+          class="group-item"
+          :class="{ active: store.activeGroupId === group.id }"
+          @click="store.setActiveGroup(group.id)"
+        >
+          <div class="group-color-swatch" :style="{ background: group.color }"></div>
+          <template v-if="editingGroupId === group.id">
+            <input
+              class="group-name-input"
+              v-model="editingGroupName"
+              @keydown.enter="saveEditGroup"
+              @keydown.escape="editingGroupId = null"
+              @click.stop
+              autofocus
+            />
+            <button class="icon-btn-sm" @click.stop="saveEditGroup">✓</button>
+          </template>
+          <template v-else>
+            <span class="group-name">{{ group.name }}</span>
+            <span class="group-count">{{ store.gardenBeds.filter(b => b.groupId === group.id).length }}</span>
+            <button class="icon-btn-sm" @click.stop="startEditGroup(group.id, group.name)" title="Rename">✏️</button>
+            <button class="icon-btn-sm danger" @click.stop="confirmDeleteGroup(group.id, group.name)" title="Delete">🗑</button>
+          </template>
+        </div>
+
+        <div class="empty-groups" v-if="store.gardenGroups.length === 0">
+          <p>No groups yet.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Garden Bed Selector -->
     <div class="section">
       <div class="section-header">
@@ -82,7 +150,7 @@
       <!-- Bed List -->
       <div class="bed-list">
         <div
-          v-for="bed in store.gardenBeds"
+          v-for="bed in visibleBeds"
           :key="bed.id"
           class="bed-item"
           :class="{ active: store.activeBedId === bed.id }"
@@ -91,11 +159,20 @@
           <div class="bed-info">
             <span class="bed-name">{{ bed.name }}</span>
             <span class="bed-meta">{{ bed.cols }}×{{ bed.rows }} · {{ bed.season }} {{ bed.year }}</span>
+            <span class="bed-group-tag" v-if="bed.groupId" :style="{ background: groupColor(bed.groupId) }">
+              {{ groupName(bed.groupId) }}
+            </span>
           </div>
-          <button class="delete-bed-btn" @click.stop="confirmDeleteBed(bed.id, bed.name)" title="Delete bed">🗑</button>
+          <div class="bed-actions">
+            <select class="group-assign-select" @click.stop @change="store.assignBedToGroup(bed.id, ($event.target as HTMLSelectElement).value || null)">
+              <option value="">No group</option>
+              <option v-for="g in store.gardenGroups" :key="g.id" :value="g.id" :selected="bed.groupId === g.id">{{ g.name }}</option>
+            </select>
+            <button class="delete-bed-btn" @click.stop="confirmDeleteBed(bed.id, bed.name)" title="Delete bed">🗑</button>
+          </div>
         </div>
-        <div class="empty-beds" v-if="store.gardenBeds.length === 0">
-          <p>No beds yet. Create one above!</p>
+        <div class="empty-beds" v-if="visibleBeds.length === 0">
+          <p>No beds{{ store.activeGroupId ? ' in this group' : '' }}. Create one above!</p>
         </div>
       </div>
     </div>
@@ -270,6 +347,40 @@ import { useGardenStore } from '../stores/gardenStore'
 
 const store = useGardenStore()
 
+// --- Garden Groups ---
+const showNewGroupForm = ref(false)
+const newGroupName = ref('')
+const newGroupDesc = ref('')
+const newGroupColor = ref('#166534')
+const editingGroupId = ref<string | null>(null)
+const editingGroupName = ref('')
+
+function createGroup() {
+  if (!newGroupName.value.trim()) return
+  store.createGroup({ name: newGroupName.value.trim(), description: newGroupDesc.value, color: newGroupColor.value })
+  showNewGroupForm.value = false
+  newGroupName.value = ''
+  newGroupDesc.value = ''
+  newGroupColor.value = '#166534'
+}
+
+function startEditGroup(id: string, name: string) {
+  editingGroupId.value = id
+  editingGroupName.value = name
+}
+
+function saveEditGroup() {
+  if (!editingGroupId.value) return
+  store.updateGroup(editingGroupId.value, { name: editingGroupName.value })
+  editingGroupId.value = null
+}
+
+function confirmDeleteGroup(id: string, name: string) {
+  if (confirm(`Delete group "${name}"? Beds in this group will become ungrouped.`)) {
+    store.deleteGroup(id)
+  }
+}
+
 const tools = [
   { mode: 'paint' as const, icon: '🎨', label: 'Paint' },
   { mode: 'erase' as const, icon: '🧹', label: 'Erase' },
@@ -401,6 +512,19 @@ function confirmDeleteBed(bedId: string, name: string) {
   if (confirm(`Delete "${name}"? This cannot be undone.`)) {
     store.deleteBed(bedId)
   }
+}
+
+const visibleBeds = computed(() => {
+  if (store.activeGroupId === null) return store.gardenBeds
+  return store.gardenBeds.filter((b) => b.groupId === store.activeGroupId)
+})
+
+function groupName(groupId: string): string {
+  return store.gardenGroups.find((g) => g.id === groupId)?.name ?? ''
+}
+
+function groupColor(groupId: string): string {
+  return store.gardenGroups.find((g) => g.id === groupId)?.color ?? '#94a3b8'
 }
 
 function getPlantEmoji(typeId: string): string {
@@ -615,6 +739,110 @@ function importData(event: Event) {
   color: #1e293b;
   margin-bottom: 2px;
 }
+
+/* Group List */
+.group-list {
+  padding: 0 8px 8px;
+}
+
+.new-group-form {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 0.82rem;
+}
+
+.group-item:hover { background: #e2e8f0; }
+.group-item.active { background: #ede9fe; border: 1px solid #c4b5fd; }
+
+.group-color-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.group-name {
+  flex: 1;
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-name-input {
+  flex: 1;
+  font-size: 0.82rem;
+  border: 1px solid #c4b5fd;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.group-count {
+  font-size: 0.7rem;
+  color: #6b7280;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 1px 6px;
+}
+
+.icon-btn-sm {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 2px 4px;
+  opacity: 0;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+}
+
+.group-item:hover .icon-btn-sm { opacity: 1; }
+.icon-btn-sm:hover { background: #e2e8f0; }
+.icon-btn-sm.danger:hover { background: #fee2e2; }
+
+.empty-groups { padding: 8px; font-size: 0.78rem; color: #9ca3af; }
+
+/* Bed group tag */
+.bed-group-tag {
+  font-size: 0.65rem;
+  color: white;
+  border-radius: 8px;
+  padding: 1px 6px;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+.bed-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.group-assign-select {
+  font-size: 0.7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: #f8fafc;
+  opacity: 0;
+  transition: opacity 0.15s;
+  max-width: 80px;
+}
+
+.bed-item:hover .group-assign-select { opacity: 1; }
 
 /* Bed List */
 .bed-list {

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import type { PlantType, PlantInstance, GardenBed, GardenLog } from '../data/types'
+import type { PlantType, PlantInstance, GardenBed, GardenGroup, GardenLog } from '../data/types'
 import { defaultPlants } from '../data/plantDatabase'
 
 const STORAGE_KEY = 'garden-planner-data'
@@ -9,8 +9,10 @@ const STORAGE_KEY = 'garden-planner-data'
 interface SavedState {
   plantTypes: PlantType[]
   gardenBeds: GardenBed[]
+  gardenGroups: GardenGroup[]
   gardenLogs: GardenLog[]
   activeBedId: string | null
+  activeGroupId: string | null
 }
 
 function loadState(): SavedState | null {
@@ -32,20 +34,27 @@ export const useGardenStore = defineStore('garden', () => {
   // --- Plant Types ---
   const plantTypes = ref<PlantType[]>(saved?.plantTypes ?? [...defaultPlants])
 
+  // --- Garden Groups ---
+  const gardenGroups = ref<GardenGroup[]>(saved?.gardenGroups ?? [])
+
   // --- Garden Beds ---
   const gardenBeds = ref<GardenBed[]>(saved?.gardenBeds ?? [])
 
   // --- Garden Logs ---
   const gardenLogs = ref<GardenLog[]>(saved?.gardenLogs ?? [])
 
-  // --- Active Bed ---
+  // --- Active Bed / Group ---
   const activeBedId = ref<string | null>(saved?.activeBedId ?? null)
+  const activeGroupId = ref<string | null>(saved?.activeGroupId ?? null)
 
   // --- Selected Plant Type (for painting) ---
   const selectedPlantTypeId = ref<string | null>(null)
 
   // --- Selected Cell (for detail view) ---
   const selectedCellKey = ref<string | null>(null)
+
+  // --- Multi-select: set of selected cell keys ---
+  const selectedCellKeys = ref<Set<string>>(new Set())
 
   // --- Tool Mode ---
   const toolMode = ref<'paint' | 'erase' | 'inspect' | 'shape'>('paint')
@@ -56,6 +65,13 @@ export const useGardenStore = defineStore('garden', () => {
   // --- Computed ---
   const activeBed = computed(() => gardenBeds.value.find((b) => b.id === activeBedId.value) ?? null)
 
+  const activeGroup = computed(() => gardenGroups.value.find((g) => g.id === activeGroupId.value) ?? null)
+
+  const bedsInActiveGroup = computed(() => {
+    if (!activeGroupId.value) return gardenBeds.value.filter((b) => !b.groupId)
+    return gardenBeds.value.filter((b) => b.groupId === activeGroupId.value)
+  })
+
   const selectedPlantType = computed(() =>
     plantTypes.value.find((p) => p.id === selectedPlantTypeId.value) ?? null,
   )
@@ -63,6 +79,13 @@ export const useGardenStore = defineStore('garden', () => {
   const selectedCell = computed(() => {
     if (!activeBed.value || !selectedCellKey.value) return null
     return activeBed.value.cells[selectedCellKey.value] ?? null
+  })
+
+  const selectedCells = computed<PlantInstance[]>(() => {
+    if (!activeBed.value) return []
+    return [...selectedCellKeys.value]
+      .map((k) => activeBed.value!.cells[k])
+      .filter(Boolean)
   })
 
   const bedStats = computed(() => {
@@ -93,13 +116,59 @@ export const useGardenStore = defineStore('garden', () => {
     saveState({
       plantTypes: plantTypes.value,
       gardenBeds: gardenBeds.value,
+      gardenGroups: gardenGroups.value,
       gardenLogs: gardenLogs.value,
       activeBedId: activeBedId.value,
+      activeGroupId: activeGroupId.value,
     })
     lastSavedAt.value = new Date().toLocaleTimeString()
   }
 
-  // --- Actions ---
+  // --- Group Actions ---
+  function createGroup(data: { name: string; description?: string; color?: string }) {
+    const group: GardenGroup = {
+      id: uuidv4(),
+      name: data.name,
+      description: data.description ?? '',
+      color: data.color ?? '#166534',
+      order: gardenGroups.value.length,
+    }
+    gardenGroups.value.push(group)
+    persist()
+    return group
+  }
+
+  function updateGroup(groupId: string, updates: Partial<GardenGroup>) {
+    const g = gardenGroups.value.find((g) => g.id === groupId)
+    if (g) { Object.assign(g, updates); persist() }
+  }
+
+  function deleteGroup(groupId: string) {
+    // Unassign all beds from this group
+    gardenBeds.value.forEach((b) => { if (b.groupId === groupId) b.groupId = null })
+    gardenGroups.value = gardenGroups.value.filter((g) => g.id !== groupId)
+    if (activeGroupId.value === groupId) activeGroupId.value = null
+    persist()
+  }
+
+  function setActiveGroup(groupId: string | null) {
+    activeGroupId.value = groupId
+    // Clear active bed if it doesn't belong to the new group
+    if (groupId !== null && activeBed.value?.groupId !== groupId) {
+      const first = gardenBeds.value.find((b) => b.groupId === groupId)
+      activeBedId.value = first?.id ?? null
+      selectedCellKey.value = null
+      selectedCellKeys.value = new Set()
+    }
+    persist()
+  }
+
+  function assignBedToGroup(bedId: string, groupId: string | null) {
+    const bed = gardenBeds.value.find((b) => b.id === bedId)
+    if (bed) { bed.groupId = groupId; persist() }
+  }
+
+  // --- Bed Actions ---
   function createBed(data: Partial<GardenBed> & { name: string; rows: number; cols: number }) {
     const bed: GardenBed = {
       id: uuidv4(),
@@ -115,6 +184,7 @@ export const useGardenStore = defineStore('garden', () => {
       notes: data.notes ?? '',
       cells: {},
       disabledCells: [],
+      groupId: activeGroupId.value,
     }
     gardenBeds.value.push(bed)
     activeBedId.value = bed.id
@@ -134,6 +204,7 @@ export const useGardenStore = defineStore('garden', () => {
   function setActiveBed(bedId: string) {
     activeBedId.value = bedId
     selectedCellKey.value = null
+    selectedCellKeys.value = new Set()
     persist()
   }
 
@@ -145,9 +216,9 @@ export const useGardenStore = defineStore('garden', () => {
     if (idx >= 0) {
       activeBed.value.disabledCells.splice(idx, 1)
     } else {
-      // Also remove any plant in this cell when disabling
       delete activeBed.value.cells[key]
       if (selectedCellKey.value === key) selectedCellKey.value = null
+      selectedCellKeys.value.delete(key)
       activeBed.value.disabledCells.push(key)
     }
     persist()
@@ -162,7 +233,6 @@ export const useGardenStore = defineStore('garden', () => {
   function paintCell(row: number, col: number) {
     if (!activeBed.value || !selectedPlantTypeId.value || toolMode.value !== 'paint') return
     const key = `${row}-${col}`
-    // Don't paint on disabled cells
     if ((activeBed.value.disabledCells ?? []).includes(key)) return
     const today = new Date().toISOString().slice(0, 10)
     const instance: PlantInstance = {
@@ -209,10 +279,39 @@ export const useGardenStore = defineStore('garden', () => {
     const key = `${row}-${col}`
     delete activeBed.value.cells[key]
     if (selectedCellKey.value === key) selectedCellKey.value = null
+    selectedCellKeys.value.delete(key)
     persist()
   }
 
-  function handleCellClick(row: number, col: number) {
+  // Multi-select toggle: Ctrl+Click in inspect mode
+  function toggleCellSelection(key: string, ctrlHeld: boolean) {
+    if (!activeBed.value) return
+    const hasPlant = !!activeBed.value.cells[key]
+    if (!hasPlant) return
+
+    if (!ctrlHeld) {
+      // Single select
+      selectedCellKeys.value = new Set([key])
+      selectedCellKey.value = key
+    } else {
+      // Multi-select: toggle
+      const next = new Set(selectedCellKeys.value)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      selectedCellKeys.value = next
+      selectedCellKey.value = next.size === 1 ? [...next][0] : null
+    }
+  }
+
+  function clearSelection() {
+    selectedCellKeys.value = new Set()
+    selectedCellKey.value = null
+  }
+
+  function handleCellClick(row: number, col: number, ctrlHeld = false) {
     if (!activeBed.value) return
     const key = `${row}-${col}`
     if (toolMode.value === 'shape') {
@@ -222,13 +321,24 @@ export const useGardenStore = defineStore('garden', () => {
     } else if (toolMode.value === 'erase') {
       eraseCell(row, col)
     } else if (toolMode.value === 'inspect') {
-      selectedCellKey.value = activeBed.value.cells[key] ? key : null
+      toggleCellSelection(key, ctrlHeld)
     }
   }
 
   function updatePlantInstance(key: string, updates: Partial<PlantInstance>) {
     if (!activeBed.value || !activeBed.value.cells[key]) return
     Object.assign(activeBed.value.cells[key], updates)
+    persist()
+  }
+
+  // Bulk-update all selected cells with a partial patch
+  function bulkUpdateSelected(updates: Partial<PlantInstance>) {
+    if (!activeBed.value) return
+    for (const key of selectedCellKeys.value) {
+      if (activeBed.value.cells[key]) {
+        Object.assign(activeBed.value.cells[key], updates)
+      }
+    }
     persist()
   }
 
@@ -250,9 +360,7 @@ export const useGardenStore = defineStore('garden', () => {
   }
 
   function deletePlantType(plantId: string) {
-    // Remove from palette
     plantTypes.value = plantTypes.value.filter((p) => p.id !== plantId)
-    // Deselect if selected
     if (selectedPlantTypeId.value === plantId) selectedPlantTypeId.value = null
     persist()
   }
@@ -266,13 +374,8 @@ export const useGardenStore = defineStore('garden', () => {
 
   function exportData(): string {
     return JSON.stringify(
-      {
-        plantTypes: plantTypes.value,
-        gardenBeds: gardenBeds.value,
-        gardenLogs: gardenLogs.value,
-      },
-      null,
-      2,
+      { plantTypes: plantTypes.value, gardenBeds: gardenBeds.value, gardenGroups: gardenGroups.value, gardenLogs: gardenLogs.value },
+      null, 2,
     )
   }
 
@@ -281,6 +384,7 @@ export const useGardenStore = defineStore('garden', () => {
       const data = JSON.parse(json)
       if (data.plantTypes) plantTypes.value = data.plantTypes
       if (data.gardenBeds) gardenBeds.value = data.gardenBeds
+      if (data.gardenGroups) gardenGroups.value = data.gardenGroups
       if (data.gardenLogs) gardenLogs.value = data.gardenLogs
       activeBedId.value = gardenBeds.value[0]?.id ?? null
       persist()
@@ -292,18 +396,29 @@ export const useGardenStore = defineStore('garden', () => {
 
   return {
     plantTypes,
+    gardenGroups,
     gardenBeds,
     gardenLogs,
     activeBedId,
+    activeGroupId,
     selectedPlantTypeId,
     selectedCellKey,
+    selectedCellKeys,
     toolMode,
     activeBed,
+    activeGroup,
+    bedsInActiveGroup,
     selectedPlantType,
     selectedCell,
+    selectedCells,
     bedStats,
     logsForActiveBed,
     lastSavedAt,
+    createGroup,
+    updateGroup,
+    deleteGroup,
+    setActiveGroup,
+    assignBedToGroup,
     createBed,
     deleteBed,
     setActiveBed,
@@ -312,7 +427,10 @@ export const useGardenStore = defineStore('garden', () => {
     handleCellClick,
     toggleCellShape,
     isCellDisabled,
+    toggleCellSelection,
+    clearSelection,
     updatePlantInstance,
+    bulkUpdateSelected,
     addLog,
     deleteLog,
     addCustomPlantType,

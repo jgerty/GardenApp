@@ -1,6 +1,7 @@
 export interface PlantType {
   id: string
   name: string
+  latinName: string
   category: 'vegetable' | 'herb' | 'fruit' | 'flower' | 'legume' | 'root' | 'leafy-green'
   emoji: string
   color: string
@@ -68,7 +69,16 @@ export interface GardenBed {
   irrigationType: string
   notes: string
   cells: Record<string, PlantInstance>  // key: "row-col"
-  disabledCells: string[]  // keys of cells excluded from the bed shape, e.g. ["0-0", "0-1"]
+  disabledCells: string[]  // keys of cells excluded from the bed shape
+  groupId: string | null   // optional group membership
+}
+
+export interface GardenGroup {
+  id: string
+  name: string
+  description: string
+  color: string  // accent color for the group UI
+  order: number  // display order
 }
 
 export interface GardenLog {

@@ -11,8 +11,10 @@
         Auto-saved {{ store.lastSavedAt }}
       </div>
     </div>
-
-    <div v-if="store.toolMode === 'shape'" class="shape-hint">
+      <div v-if="store.toolMode === 'inspect' && store.selectedCellKeys.size > 1" class="multi-select-hint">
+        🔷 <strong>{{ store.selectedCellKeys.size }} cells selected</strong> — Ctrl+click to add/remove. See bulk-edit panel →
+        <button class="clear-btn" @click="store.clearSelection()">✕ Clear</button>
+      </div>    <div v-if="store.toolMode === 'shape'" class="shape-hint">
       ✏️ <strong>Shape Editor</strong> — Click cells to toggle them on/off. Create L-shapes, U-shapes, or any custom layout.
     </div>
 
@@ -23,29 +25,40 @@
       @mouseup="stopPainting"
       @mouseleave="stopPainting"
     >
-      <div
-        v-for="(cell, idx) in gridCells"
-        :key="idx"
-        class="grid-cell"
-        :class="{
-          'has-plant': cell.plant !== null,
-          'is-selected': cell.key === store.selectedCellKey,
-          'is-disabled': cell.disabled,
-          'shape-mode': store.toolMode === 'shape',
-          'health-excellent': cell.plant?.health === 'excellent',
-          'health-good': cell.plant?.health === 'good',
-          'health-fair': cell.plant?.health === 'fair',
-          'health-stressed': cell.plant?.health === 'stressed',
-          'health-diseased': cell.plant?.health === 'diseased',
-          'health-pest': cell.plant?.health === 'pest-damage',
-          'health-dead': cell.plant?.health === 'dead',
-        }"
-        :style="cell.plant && !cell.disabled ? { backgroundColor: getPlantColor(cell.plant.plantTypeId) } : {}"
-        @mousedown.prevent="onCellMouseDown(cell.row, cell.col)"
-        @mouseenter="onCellMouseEnter(cell.row, cell.col)"
-        @click="onCellClick(cell.row, cell.col)"
-        :title="getCellTooltip(cell)"
-      >
+      <!-- Column headers (spacer + numbered) -->
+      <template v-if="colHeaders.length">
+        <div class="grid-corner"></div>
+        <div class="grid-col-header" v-for="h in colHeaders" :key="'ch-' + h">{{ h }}</div>
+      </template>
+
+      <template v-for="(cell, idx) in gridCells" :key="idx">
+        <!-- Row number at start of each row -->
+        <div v-if="cell.col === 0" class="grid-row-header">{{ cell.row + 1 }}</div>
+
+        <div
+          class="grid-cell"
+          :class="{
+            'has-plant': cell.plant !== null,
+            'is-selected': cell.key === store.selectedCellKey && store.selectedCellKeys.size <= 1,
+            'is-multi-selected': store.selectedCellKeys.has(cell.key),
+            'is-disabled': cell.disabled,
+            'shape-mode': store.toolMode === 'shape',
+            'health-excellent': cell.plant?.health === 'excellent',
+            'health-good': cell.plant?.health === 'good',
+            'health-fair': cell.plant?.health === 'fair',
+            'health-stressed': cell.plant?.health === 'stressed',
+            'health-diseased': cell.plant?.health === 'diseased',
+            'health-pest': cell.plant?.health === 'pest-damage',
+            'health-dead': cell.plant?.health === 'dead',
+          }"
+          :style="cell.plant && !cell.disabled ? { backgroundColor: getPlantColor(cell.plant.plantTypeId) } : {}"
+          @mousedown.prevent="onCellMouseDown(cell.row, cell.col)"
+          @mouseenter="onCellMouseEnter(cell.row, cell.col)"
+          @click.exact="onCellClick(cell.row, cell.col, false)"
+          @click.ctrl="onCellClick(cell.row, cell.col, true)"
+          @click.meta="onCellClick(cell.row, cell.col, true)"
+          :title="getCellTooltip(cell)"
+        >
         <template v-if="cell.disabled">
           <span class="cell-disabled-icon">✕</span>
         </template>
@@ -56,7 +69,8 @@
         <template v-else>
           <div class="cell-coords">{{ cell.row + 1 }},{{ cell.col + 1 }}</div>
         </template>
-      </div>
+        </div>
+      </template>
     </div>
 
     <div class="grid-legend" v-if="store.bedStats">
@@ -116,11 +130,17 @@ const gridCells = computed<GridCellData[]>(() => {
   return cells
 })
 
+const colHeaders = computed(() => {
+  if (!store.activeBed) return []
+  return Array.from({ length: store.activeBed.cols }, (_, i) => i + 1)
+})
+
 const gridStyle = computed(() => {
   if (!store.activeBed) return {}
+  // +1 col for row-number header column; +1 row for col-number header row
   return {
-    gridTemplateColumns: `repeat(${store.activeBed.cols}, 1fr)`,
-    gridTemplateRows: `repeat(${store.activeBed.rows}, 1fr)`,
+    gridTemplateColumns: `24px repeat(${store.activeBed.cols}, 1fr)`,
+    gridTemplateRows: `20px repeat(${store.activeBed.rows}, 1fr)`,
   }
 })
 
@@ -162,10 +182,9 @@ function onCellMouseEnter(row: number, col: number) {
   }
 }
 
-function onCellClick(row: number, col: number) {
+function onCellClick(row: number, col: number, ctrlHeld: boolean) {
   if (store.toolMode === 'inspect') {
-    const key = `${row}-${col}`
-    store.selectedCellKey = store.activeBed?.cells[key] ? key : null
+    store.handleCellClick(row, col, ctrlHeld)
   }
 }
 </script>
@@ -245,22 +264,75 @@ function onCellClick(row: number, col: number) {
   margin-bottom: 12px;
 }
 
+.multi-select-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f3ff;
+  border: 1px solid #c4b5fd;
+  color: #4c1d95;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+
+.clear-btn {
+  margin-left: auto;
+  background: #ede9fe;
+  border: 1px solid #c4b5fd;
+  border-radius: 6px;
+  color: #6d28d9;
+  font-size: 0.75rem;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.clear-btn:hover {
+  background: #ddd6fe;
+}
+
 .garden-grid {
   display: grid;
-  gap: 2px;
-  background: #d1d5db;
-  border: 2px solid #9ca3af;
-  border-radius: 8px;
-  padding: 2px;
+  gap: 1px;
+  background: #94a3b8;
+  border: 2px solid #64748b;
+  border-radius: 4px;
+  padding: 1px;
   flex: 1;
   min-height: 300px;
   user-select: none;
   cursor: crosshair;
 }
 
+.grid-corner {
+  background: #e2e8f0;
+}
+
+.grid-col-header {
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #64748b;
+  min-height: 20px;
+}
+
+/* The very first header cell (top-left corner) handled by an implicit empty col */.grid-row-header {
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
 .grid-cell {
-  background: #f9fafb;
-  border-radius: 4px;
+  background: #f8fafc;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -268,7 +340,7 @@ function onCellClick(row: number, col: number) {
   min-height: 48px;
   min-width: 48px;
   position: relative;
-  transition: all 0.15s ease;
+  transition: background 0.1s ease, outline 0.1s ease;
   overflow: hidden;
 }
 
@@ -276,7 +348,6 @@ function onCellClick(row: number, col: number) {
   outline: 2px solid #3b82f6;
   outline-offset: -2px;
   z-index: 1;
-  transform: scale(1.05);
 }
 
 .grid-cell.has-plant {
@@ -289,6 +360,13 @@ function onCellClick(row: number, col: number) {
   outline-offset: -1px;
   z-index: 2;
   box-shadow: 0 0 0 2px white, 0 0 12px rgba(37, 99, 235, 0.5);
+}
+
+.grid-cell.is-multi-selected {
+  outline: 3px solid #7c3aed;
+  outline-offset: -1px;
+  z-index: 2;
+  background-color: rgba(124, 58, 237, 0.08);
 }
 
 .cell-emoji {
