@@ -52,11 +52,9 @@
             'health-dead': cell.plant?.health === 'dead',
           }"
           :style="cell.plant && !cell.disabled ? { backgroundColor: getPlantColor(cell.plant.plantTypeId) } : {}"
-          @mousedown.prevent="onCellMouseDown(cell.row, cell.col)"
+          @mousedown.prevent="onCellMouseDown(cell.row, cell.col, $event)"
           @mouseenter="onCellMouseEnter(cell.row, cell.col)"
-          @click.exact="onCellClick(cell.row, cell.col, false)"
-          @click.ctrl="onCellClick(cell.row, cell.col, true)"
-          @click.meta="onCellClick(cell.row, cell.col, true)"
+          @click="onCellClick(cell.row, cell.col, $event)"
           :title="getCellTooltip(cell)"
         >
         <template v-if="cell.disabled">
@@ -171,9 +169,13 @@ function stopPainting() {
   isPainting.value = false
 }
 
-function onCellMouseDown(row: number, col: number) {
+function onCellMouseDown(row: number, col: number, event: MouseEvent) {
   isPainting.value = true
-  store.handleCellClick(row, col)
+  // Inspect mode selection is handled entirely in the click event (which carries modifier keys).
+  // Paint/erase/shape modes act on mousedown so drag-painting works.
+  if (store.toolMode !== 'inspect') {
+    store.handleCellClick(row, col)
+  }
 }
 
 function onCellMouseEnter(row: number, col: number) {
@@ -182,9 +184,9 @@ function onCellMouseEnter(row: number, col: number) {
   }
 }
 
-function onCellClick(row: number, col: number, ctrlHeld: boolean) {
+function onCellClick(row: number, col: number, event: MouseEvent) {
   if (store.toolMode === 'inspect') {
-    store.handleCellClick(row, col, ctrlHeld)
+    store.handleCellClick(row, col, event.ctrlKey || event.metaKey)
   }
 }
 </script>
