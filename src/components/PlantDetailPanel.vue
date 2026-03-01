@@ -1,0 +1,503 @@
+<template>
+  <div class="plant-detail-panel" v-if="store.selectedCell && plantType">
+    <div class="detail-header" :style="{ borderColor: plantType.color }">
+      <div class="detail-title-row">
+        <span class="detail-emoji">{{ plantType.emoji }}</span>
+        <div>
+          <h3>{{ plantType.name }}</h3>
+          <span class="detail-category">{{ plantType.category }}</span>
+        </div>
+      </div>
+      <button class="close-btn" @click="store.selectedCellKey = null" title="Close">×</button>
+    </div>
+
+    <div class="detail-body">
+      <!-- Quick Status -->
+      <section class="detail-section">
+        <h4>Status & Health</h4>
+        <div class="field-row">
+          <label>Status</label>
+          <select :value="store.selectedCell.status" @change="update('status', ($event.target as HTMLSelectElement).value)">
+            <option v-for="s in PLANT_STATUSES" :key="s.value" :value="s.value">{{ s.icon }} {{ s.label }}</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Health</label>
+          <select :value="store.selectedCell.health" @change="update('health', ($event.target as HTMLSelectElement).value)">
+            <option v-for="h in HEALTH_OPTIONS" :key="h.value" :value="h.value">{{ h.label }}</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Rating</label>
+          <div class="star-rating">
+            <button
+              v-for="star in 5"
+              :key="star"
+              class="star-btn"
+              :class="{ active: (store.selectedCell.rating ?? 0) >= star }"
+              @click="update('rating', star)"
+            >★</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Variety & Source -->
+      <section class="detail-section">
+        <h4>Variety & Source</h4>
+        <div class="field-row">
+          <label>Variety / Cultivar</label>
+          <input type="text" :value="store.selectedCell.variety" @change="update('variety', ($event.target as HTMLInputElement).value)" placeholder="e.g. Brandywine, Early Girl" />
+        </div>
+        <div class="field-row">
+          <label>Seed Source</label>
+          <input type="text" :value="store.selectedCell.seedSource" @change="update('seedSource', ($event.target as HTMLInputElement).value)" placeholder="e.g. Baker Creek, saved seed" />
+        </div>
+      </section>
+
+      <!-- Key Dates -->
+      <section class="detail-section">
+        <h4>📅 Key Dates</h4>
+        <div class="field-row" v-for="dateField in dateFields" :key="dateField.key">
+          <label>{{ dateField.label }}</label>
+          <input
+            type="date"
+            :value="(store.selectedCell as any)[dateField.key]"
+            @change="update(dateField.key, ($event.target as HTMLInputElement).value || null)"
+          />
+        </div>
+      </section>
+
+      <!-- Yield -->
+      <section class="detail-section">
+        <h4>🧺 Harvest & Yield</h4>
+        <div class="field-row">
+          <label>Total Yield</label>
+          <div class="yield-row">
+            <input
+              type="number"
+              :value="store.selectedCell.yieldTotal"
+              @change="update('yieldTotal', parseFloat(($event.target as HTMLInputElement).value) || null)"
+              placeholder="0"
+              min="0"
+              step="0.1"
+            />
+            <select :value="store.selectedCell.yieldUnit" @change="update('yieldUnit', ($event.target as HTMLSelectElement).value)">
+              <option value="">Unit</option>
+              <option value="lbs">lbs</option>
+              <option value="oz">oz</option>
+              <option value="count">count</option>
+              <option value="bunches">bunches</option>
+              <option value="cups">cups</option>
+              <option value="quarts">quarts</option>
+              <option value="gallons">gallons</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Care Details -->
+      <section class="detail-section">
+        <h4>💧 Care Details</h4>
+        <div class="field-row">
+          <label>Watering Method</label>
+          <select :value="store.selectedCell.wateringMethod" @change="update('wateringMethod', ($event.target as HTMLSelectElement).value)">
+            <option value="">Not set</option>
+            <option value="drip">Drip</option>
+            <option value="sprinkler">Sprinkler</option>
+            <option value="hand-watering">Hand Watering</option>
+            <option value="soaker-hose">Soaker Hose</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Watering Frequency</label>
+          <input type="text" :value="store.selectedCell.wateringFrequency" @change="update('wateringFrequency', ($event.target as HTMLInputElement).value)" placeholder="e.g. Daily, every 2 days" />
+        </div>
+        <div class="field-row">
+          <label>Fertilizer Used</label>
+          <input type="text" :value="store.selectedCell.fertilizerUsed" @change="update('fertilizerUsed', ($event.target as HTMLInputElement).value)" placeholder="e.g. 10-10-10, fish emulsion" />
+        </div>
+        <div class="field-row">
+          <label>Fertilizer Schedule</label>
+          <input type="text" :value="store.selectedCell.fertilizerSchedule" @change="update('fertilizerSchedule', ($event.target as HTMLInputElement).value)" placeholder="e.g. Every 2 weeks" />
+        </div>
+        <div class="field-row">
+          <label>Mulch Type</label>
+          <input type="text" :value="store.selectedCell.mulchType" @change="update('mulchType', ($event.target as HTMLInputElement).value)" placeholder="e.g. Straw, wood chips" />
+        </div>
+        <div class="field-row">
+          <label>Support Type</label>
+          <select :value="store.selectedCell.supportType" @change="update('supportType', ($event.target as HTMLSelectElement).value)">
+            <option value="">None</option>
+            <option value="stake">Stake</option>
+            <option value="cage">Cage</option>
+            <option value="trellis">Trellis</option>
+            <option value="fence">Fence</option>
+            <option value="raised-bed-edge">Raised Bed Edge</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Issues -->
+      <section class="detail-section">
+        <h4>🐛 Issues & Treatments</h4>
+        <div class="field-row">
+          <label>Pest Issues</label>
+          <textarea :value="store.selectedCell.pestIssues" @change="update('pestIssues', ($event.target as HTMLTextAreaElement).value)" placeholder="Describe any pest issues..." rows="2"></textarea>
+        </div>
+        <div class="field-row">
+          <label>Disease Issues</label>
+          <textarea :value="store.selectedCell.diseaseIssues" @change="update('diseaseIssues', ($event.target as HTMLTextAreaElement).value)" placeholder="Describe any disease issues..." rows="2"></textarea>
+        </div>
+        <div class="field-row">
+          <label>Treatments Applied</label>
+          <textarea :value="store.selectedCell.treatmentsApplied" @change="update('treatmentsApplied', ($event.target as HTMLTextAreaElement).value)" placeholder="Neem oil, diatomaceous earth, etc." rows="2"></textarea>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="detail-section">
+        <h4>📝 Notes</h4>
+        <textarea
+          :value="store.selectedCell.notes"
+          @change="update('notes', ($event.target as HTMLTextAreaElement).value)"
+          placeholder="Any additional observations, notes, or reminders..."
+          rows="4"
+        ></textarea>
+      </section>
+
+      <!-- Plant Type Reference -->
+      <section class="detail-section reference">
+        <h4>📖 Plant Reference</h4>
+        <div class="ref-grid">
+          <div class="ref-item"><span class="ref-label">Days to Germination</span><span>{{ plantType.daysToGermination ?? 'N/A' }}</span></div>
+          <div class="ref-item"><span class="ref-label">Days to Maturity</span><span>{{ plantType.daysToMaturity ?? 'N/A' }}</span></div>
+          <div class="ref-item"><span class="ref-label">Spacing</span><span>{{ plantType.spacingInches }}" apart</span></div>
+          <div class="ref-item"><span class="ref-label">Row Spacing</span><span>{{ plantType.rowSpacingInches }}"</span></div>
+          <div class="ref-item"><span class="ref-label">Plant Depth</span><span>{{ plantType.plantDepthInches }}"</span></div>
+          <div class="ref-item"><span class="ref-label">Sun</span><span>{{ plantType.sunRequirement }}</span></div>
+          <div class="ref-item"><span class="ref-label">Water</span><span>{{ plantType.waterNeeds }}</span></div>
+          <div class="ref-item"><span class="ref-label">Soil</span><span>{{ plantType.soilType }}</span></div>
+          <div class="ref-item"><span class="ref-label">pH Range</span><span>{{ plantType.phRange }}</span></div>
+          <div class="ref-item"><span class="ref-label">Zones</span><span>{{ plantType.hardinessZones }}</span></div>
+        </div>
+        <div class="ref-companions" v-if="plantType.companionPlants.length">
+          <span class="ref-label">Companions:</span>
+          <span class="companion-tag good" v-for="c in plantType.companionPlants" :key="c">{{ c }}</span>
+        </div>
+        <div class="ref-companions" v-if="plantType.incompatiblePlants.length">
+          <span class="ref-label">Avoid:</span>
+          <span class="companion-tag bad" v-for="c in plantType.incompatiblePlants" :key="c">{{ c }}</span>
+        </div>
+        <p class="ref-notes" v-if="plantType.notes">💡 {{ plantType.notes }}</p>
+      </section>
+
+      <!-- Danger Zone -->
+      <section class="detail-section danger">
+        <button class="delete-btn" @click="removeThisPlant">🗑️ Remove Plant from Cell</button>
+      </section>
+    </div>
+  </div>
+
+  <div class="plant-detail-panel empty" v-else-if="!store.selectedCell">
+    <div class="empty-detail">
+      <span>🔍</span>
+      <p>Select a planted cell in <strong>Inspect</strong> mode to view and edit details</p>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useGardenStore } from '../stores/gardenStore'
+import { PLANT_STATUSES, HEALTH_OPTIONS } from '../data/types'
+
+const store = useGardenStore()
+
+const plantType = computed(() => {
+  if (!store.selectedCell) return null
+  return store.plantTypes.find((p) => p.id === store.selectedCell!.plantTypeId) ?? null
+})
+
+const dateFields = [
+  { key: 'datePlanned', label: 'Date Planned' },
+  { key: 'dateSeededIndoors', label: 'Seeded Indoors' },
+  { key: 'dateDirectSown', label: 'Direct Sown' },
+  { key: 'dateTransplanted', label: 'Transplanted' },
+  { key: 'dateFirstSprout', label: 'First Sprout' },
+  { key: 'dateFirstTrueLeaves', label: 'First True Leaves' },
+  { key: 'dateFirstFlower', label: 'First Flower' },
+  { key: 'dateFirstFruit', label: 'First Fruit' },
+  { key: 'dateFirstHarvest', label: 'First Harvest' },
+  { key: 'dateLastHarvest', label: 'Last Harvest' },
+  { key: 'dateRemoved', label: 'Date Removed' },
+]
+
+function update(field: string, value: any) {
+  if (!store.selectedCellKey) return
+  store.updatePlantInstance(store.selectedCellKey, { [field]: value })
+}
+
+function removeThisPlant() {
+  if (!store.selectedCell || !store.selectedCellKey) return
+  const key = store.selectedCellKey
+  const [r, c] = key.split('-').map(Number)
+  store.eraseCell(r, c)
+}
+</script>
+
+<style scoped>
+.plant-detail-panel {
+  width: 360px;
+  background: white;
+  border-left: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.plant-detail-panel.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-detail {
+  text-align: center;
+  color: #9ca3af;
+  padding: 20px;
+}
+
+.empty-detail span {
+  font-size: 2.5rem;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 3px solid;
+  background: #fafafa;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-emoji {
+  font-size: 2rem;
+}
+
+.detail-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #1a1a2e;
+}
+
+.detail-category {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #6b7280;
+  letter-spacing: 0.05em;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.close-btn:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.detail-body {
+  padding: 0;
+  flex: 1;
+}
+
+.detail-section {
+  padding: 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.detail-section h4 {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.field-row {
+  margin-bottom: 10px;
+}
+
+.field-row label {
+  display: block;
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.field-row input,
+.field-row select,
+.field-row textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: white;
+  box-sizing: border-box;
+}
+
+.field-row input:focus,
+.field-row select:focus,
+.field-row textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.field-row textarea {
+  resize: vertical;
+}
+
+.yield-row {
+  display: flex;
+  gap: 8px;
+}
+
+.yield-row input {
+  flex: 1;
+}
+
+.yield-row select {
+  width: 100px;
+}
+
+.star-rating {
+  display: flex;
+  gap: 2px;
+}
+
+.star-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: #d1d5db;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s;
+}
+
+.star-btn.active {
+  color: #f59e0b;
+}
+
+.star-btn:hover {
+  color: #fbbf24;
+}
+
+.reference {
+  background: #f9fafb;
+}
+
+.ref-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ref-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.ref-label {
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 500;
+}
+
+.ref-item span:last-child {
+  font-size: 0.85rem;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.ref-companions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.companion-tag {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.companion-tag.good {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.companion-tag.bad {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.ref-notes {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.4;
+  background: white;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.danger {
+  border-bottom: none;
+}
+
+.delete-btn {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.delete-btn:hover {
+  background: #fee2e2;
+}
+</style>
